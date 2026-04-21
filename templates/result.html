@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Result — FaceAuth</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body class="result-page">
+
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="orb orb-1" aria-hidden="true"></div>
+  <div class="orb orb-2" aria-hidden="true"></div>
+
+  <div class="result-container">
+    <div class="result-card" id="resultCard">
+      <!-- Dynamically filled by result.js -->
+      <div class="result-icon" id="resultIcon"></div>
+      <h1 id="resultTitle"></h1>
+      <p id="resultMessage"></p>
+
+      <div class="result-meta" id="resultMeta" style="display:none;">
+        <div class="meta-item">
+          <span class="meta-label">User</span>
+          <span class="meta-value" id="metaUser">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Confidence</span>
+          <span class="meta-value" id="metaConfidence">—</span>
+        </div>
+        <div class="meta-item">
+          <span class="meta-label">Time</span>
+          <span class="meta-value" id="metaTime">—</span>
+        </div>
+      </div>
+
+      <div class="result-actions">
+        <a href="/" class="btn btn-outline">← Home</a>
+        <a href="/login-page" class="btn btn-secondary" id="btnTryAgain">Try Again</a>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/result.js"></script>
+</body>
+</html>

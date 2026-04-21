@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — FaceAuth</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body class="auth-page">
+
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="orb orb-2" aria-hidden="true"></div>
+
+  <div class="auth-container">
+    <a href="/" class="back-link">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+      Back
+    </a>
+
+    <div class="auth-card">
+      <div class="card-header">
+        <div class="card-icon login-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="8" r="5"/>
+            <path d="M3 21a9 9 0 0 1 18 0"/>
+            <path d="M9 8l1.5 1.5L15 6"/>
+          </svg>
+        </div>
+        <h2>Face Login</h2>
+        <p>Look into the camera to authenticate</p>
+      </div>
+
+      <!-- Liveness tip -->
+      <div class="liveness-tip">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <span><strong>Tip:</strong> Blink naturally and ensure good lighting for best results.</span>
+      </div>
+
+      <!-- Camera preview -->
+      <div class="camera-section">
+        <div class="camera-frame" id="cameraFrame">
+          <video id="video" autoplay muted playsinline></video>
+          <canvas id="canvas" style="display:none;"></canvas>
+          <div class="camera-overlay" id="cameraOverlay">
+            <div class="face-guide login-guide">
+              <div class="scan-line"></div>
+              <div class="corner tl"></div>
+              <div class="corner tr"></div>
+              <div class="corner bl"></div>
+              <div class="corner br"></div>
+              <span class="guide-text">Scanning…</span>
+            </div>
+          </div>
+          <div class="camera-placeholder" id="cameraPlaceholder">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+            <p>Camera not started</p>
+          </div>
+          <img id="capturedImg" alt="Captured face" style="display:none;" />
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="btn-group">
+        <button class="btn btn-outline" id="btnCamera" onclick="startCamera()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+          Start Camera
+        </button>
+        <button class="btn btn-outline" id="btnCapture" onclick="captureImage()" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M9 3H5a2 2 0 0 0-2 2v4m0 6v4a2 2 0 0 0 2 2h4m6 0h4a2 2 0 0 0 2-2v-4m0-6V5a2 2 0 0 0-2-2h-4"/></svg>
+          Capture
+        </button>
+      </div>
+
+      <button class="btn btn-primary full-width login-btn" id="btnLogin" onclick="loginUser()" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        Authenticate
+      </button>
+
+      <div class="status-msg" id="statusMsg" style="display:none;"></div>
+
+      <p class="auth-switch">Not registered yet? <a href="/register-page">Create account →</a></p>
+    </div>
+  </div>
+
+  <script src="/static/js/camera.js"></script>
+  <script src="/static/js/login.js"></script>
+</body>
+</html>
