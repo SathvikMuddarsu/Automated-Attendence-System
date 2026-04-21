@@ -1,253 +1,275 @@
 """
-app.py — Facial Recognition Authentication Backend
-====================================================
-Flask REST API for face-based user registration and login.
-Uses the `face_recognition` library (dlib under the hood) for
-encoding and comparison, and SQLite for persistent storage.
+app.py — Facial Recognition Attendance System
+===============================================
+Routes:
+  POST /register       — Register new user with face
+  POST /login          — Mark attendance via face
+  GET  /attendance     — Get today's attendance (present/absent)
+  GET  /attendance/all — Full attendance history
 """
 
-import os
-import base64
-import io
-import json
-import sqlite3
+import os, base64, io, json, sqlite3
+from datetime import date, datetime
 import numpy as np
 import face_recognition
 from PIL import Image
 from flask import Flask, request, jsonify, render_template
 from flask_cors import CORS
 
-# ── App setup ──────────────────────────────────────────────────────────────────
-app = Flask(__name__)
-CORS(app)                             # Allow cross-origin requests from the frontend
+app     = Flask(__name__)
+CORS(app)
 
-DB_PATH  = "users.db"                # SQLite database file
-FACE_DIR = "face_data"               # Directory to persist raw face images (optional)
+DB_PATH   = "users.db"
+FACE_DIR  = "face_data"
+TOLERANCE = 0.50
 os.makedirs(FACE_DIR, exist_ok=True)
 
-TOLERANCE = 0.50   # Lower = stricter match (0.4–0.6 is a good range)
-
-# ── Database helpers ────────────────────────────────────────────────────────────
+# ── Database ────────────────────────────────────────────────────
 
 def get_db():
-    """Open a database connection and return (conn, cursor)."""
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row   # rows behave like dicts
+    conn.row_factory = sqlite3.Row
     return conn, conn.cursor()
 
-
 def init_db():
-    """Create the users table if it doesn't already exist."""
     conn, cur = get_db()
+    # Users table — stores face encodings
     cur.execute("""
         CREATE TABLE IF NOT EXISTS users (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
-            username  TEXT    UNIQUE NOT NULL,
-            encoding  TEXT    NOT NULL,   -- JSON list of 128 floats
+            username  TEXT UNIQUE NOT NULL,
+            encoding  TEXT NOT NULL,
             created   DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    # Attendance table — one record per user per day
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attendance (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id   INTEGER NOT NULL,
+            username  TEXT NOT NULL,
+            date      TEXT NOT NULL,
+            time      TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            UNIQUE(user_id, date)
         )
     """)
     conn.commit()
     conn.close()
 
+# ── Image helpers ───────────────────────────────────────────────
 
-# ── Image helpers ───────────────────────────────────────────────────────────────
+def decode_image(b64):
+    if "," in b64:
+        b64 = b64.split(",", 1)[1]
+    return np.array(Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB"))
 
-def decode_base64_image(b64_string: str) -> np.ndarray:
-    """
-    Convert a base64-encoded image string (from the frontend canvas)
-    into an RGB numpy array suitable for face_recognition.
-    """
-    # Strip the data-URL header if present  e.g. "data:image/png;base64,..."
-    if "," in b64_string:
-        b64_string = b64_string.split(",", 1)[1]
+def get_encoding(img_array):
+    locs = face_recognition.face_locations(img_array, model="hog")
+    if not locs:
+        return None, "No face detected."
+    if len(locs) > 1:
+        locs = [max(locs, key=lambda l: (l[2]-l[0])*(l[1]-l[3]))]
+    encs = face_recognition.face_encodings(img_array, locs)
+    if not encs:
+        return None, "Could not encode face."
+    return encs[0], None
 
-    img_bytes = base64.b64decode(b64_string)
-    pil_image = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    return np.array(pil_image)
-
-
-def extract_encoding(image_array: np.ndarray):
-    """
-    Detect faces in the image and return the 128-d encoding of the
-    largest face, or None if no face is found.
-    """
-    # face_recognition expects RGB; OpenCV uses BGR — PIL.convert("RGB") already handles this
-    locations = face_recognition.face_locations(image_array, model="hog")
-
-    if not locations:
-        return None, "No face detected in the image."
-
-    if len(locations) > 1:
-        # Pick the largest bounding box (most prominent face)
-        largest = max(locations, key=lambda loc: (loc[2]-loc[0]) * (loc[1]-loc[3]))
-        locations = [largest]
-
-    encodings = face_recognition.face_encodings(image_array, locations)
-    if not encodings:
-        return None, "Could not encode the detected face."
-
-    return encodings[0], None   # (128-d numpy array, no error)
-
-
-# ── Routes ──────────────────────────────────────────────────────────────────────
+# ── HTML Pages ──────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
-
 @app.route("/register-page")
 def register_page():
     return render_template("register.html")
-
 
 @app.route("/login-page")
 def login_page():
     return render_template("login.html")
 
-
 @app.route("/result-page")
 def result_page():
     return render_template("result.html")
 
+@app.route("/attendance-page")
+def attendance_page():
+    return render_template("attendance.html")
 
-# ── /register (POST) ────────────────────────────────────────────────────────────
+# ── API: Register ───────────────────────────────────────────────
+
 @app.route("/register", methods=["POST"])
 def register():
-    """
-    Accepts JSON: { "username": "alice", "image": "<base64 PNG>" }
-    Encodes the face and stores the encoding in SQLite.
-    """
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"success": False, "message": "Invalid JSON body."}), 400
-
-    username = (data.get("username") or "").strip()
+    data      = request.get_json(silent=True) or {}
+    username  = (data.get("username") or "").strip()
     image_b64 = data.get("image") or ""
 
-    # ── Validate inputs
     if not username:
-        return jsonify({"success": False, "message": "Username is required."}), 400
-    if len(username) < 2 or len(username) > 32:
-        return jsonify({"success": False, "message": "Username must be 2–32 characters."}), 400
+        return jsonify({"success": False, "message": "Username required."}), 400
     if not image_b64:
         return jsonify({"success": False, "message": "No image received."}), 400
 
-    # ── Check for existing username
     conn, cur = get_db()
-    cur.execute("SELECT id FROM users WHERE username = ?", (username,))
+    cur.execute("SELECT id FROM users WHERE username=?", (username,))
     if cur.fetchone():
         conn.close()
-        return jsonify({"success": False, "message": f"Username '{username}' is already registered."}), 409
+        return jsonify({"success": False, "message": f"'{username}' is already registered."}), 409
 
-    # ── Decode image & extract face encoding
     try:
-        image_array = decode_base64_image(image_b64)
+        img = decode_image(image_b64)
     except Exception as e:
         conn.close()
-        return jsonify({"success": False, "message": f"Image decode error: {e}"}), 400
+        return jsonify({"success": False, "message": f"Image error: {e}"}), 400
 
-    encoding, error = extract_encoding(image_array)
-    if error:
+    enc, err = get_encoding(img)
+    if err:
         conn.close()
-        return jsonify({"success": False, "message": error}), 422
+        return jsonify({"success": False, "message": err}), 422
 
-    # ── Persist encoding as JSON list
-    encoding_json = json.dumps(encoding.tolist())
+    cur.execute("INSERT INTO users (username, encoding) VALUES (?,?)",
+                (username, json.dumps(enc.tolist())))
+    conn.commit()
+    conn.close()
+    return jsonify({
+        "success": True,
+        "message": f"'{username}' registered successfully!",
+        "username": username
+    })
+
+# ── API: Login / Mark Attendance ────────────────────────────────
+
+@app.route("/login", methods=["POST"])
+def login():
+    data      = request.get_json(silent=True) or {}
+    image_b64 = data.get("image") or ""
+
+    if not image_b64:
+        return jsonify({"success": False, "message": "No image received."}), 400
+
+    try:
+        img = decode_image(image_b64)
+    except Exception as e:
+        return jsonify({"success": False, "message": f"Image error: {e}"}), 400
+
+    enc, err = get_encoding(img)
+    if err:
+        return jsonify({"success": False, "message": err}), 422
+
+    conn, cur = get_db()
+    cur.execute("SELECT id, username, encoding FROM users")
+    rows = cur.fetchall()
+
+    if not rows:
+        conn.close()
+        return jsonify({"success": False, "message": "No users registered yet."}), 404
+
+    known_encs  = [np.array(json.loads(r["encoding"])) for r in rows]
+    known_ids   = [r["id"]       for r in rows]
+    known_names = [r["username"] for r in rows]
+
+    matches   = face_recognition.compare_faces(known_encs, enc, tolerance=TOLERANCE)
+    distances = face_recognition.face_distance(known_encs, enc)
+    best      = int(np.argmin(distances))
+
+    if not matches[best]:
+        conn.close()
+        return jsonify({"success": False, "message": "Face not recognized. Please try again."}), 401
+
+    uid        = known_ids[best]
+    username   = known_names[best]
+    confidence = round((1 - float(distances[best])) * 100, 1)
+    today      = date.today().isoformat()
+    now        = datetime.now().strftime("%H:%M:%S")
+
+    # Check if already marked today
+    cur.execute("SELECT id FROM attendance WHERE user_id=? AND date=?", (uid, today))
+    already = cur.fetchone()
+
+    if already:
+        conn.close()
+        return jsonify({
+            "success":       True,
+            "message":       f"Attendance already marked for {username} today!",
+            "username":      username,
+            "confidence":    confidence,
+            "already_marked": True,
+            "time":          now
+        })
+
+    # Mark attendance
     cur.execute(
-        "INSERT INTO users (username, encoding) VALUES (?, ?)",
-        (username, encoding_json)
+        "INSERT INTO attendance (user_id, username, date, time) VALUES (?,?,?,?)",
+        (uid, username, today, now)
     )
     conn.commit()
     conn.close()
 
     return jsonify({
-        "success": True,
-        "message": f"User '{username}' registered successfully!",
-        "username": username
+        "success":       True,
+        "message":       f"Attendance marked for {username}!",
+        "username":      username,
+        "confidence":    confidence,
+        "already_marked": False,
+        "time":          now
     })
 
+# ── API: Get Attendance (present + absent) ──────────────────────
 
-# ── /login (POST) ───────────────────────────────────────────────────────────────
-@app.route("/login", methods=["POST"])
-def login():
-    """
-    Accepts JSON: { "image": "<base64 PNG>" }
-    Encodes the incoming face and compares it against all stored encodings.
-    Returns the matched username or an error.
-    """
-    data = request.get_json(silent=True)
-    if not data:
-        return jsonify({"success": False, "message": "Invalid JSON body."}), 400
-
-    image_b64 = data.get("image") or ""
-    if not image_b64:
-        return jsonify({"success": False, "message": "No image received."}), 400
-
-    # ── Decode image & extract face encoding
-    try:
-        image_array = decode_base64_image(image_b64)
-    except Exception as e:
-        return jsonify({"success": False, "message": f"Image decode error: {e}"}), 400
-
-    encoding, error = extract_encoding(image_array)
-    if error:
-        return jsonify({"success": False, "message": error}), 422
-
-    # ── Load all stored encodings from DB
+@app.route("/attendance", methods=["GET"])
+def get_attendance():
+    today = request.args.get("date", date.today().isoformat())
     conn, cur = get_db()
-    cur.execute("SELECT username, encoding FROM users")
-    rows = cur.fetchall()
+
+    # All registered users
+    cur.execute("SELECT username FROM users ORDER BY username")
+    all_users = [r["username"] for r in cur.fetchall()]
+
+    # Who attended today
+    cur.execute(
+        "SELECT username, time FROM attendance WHERE date=? ORDER BY time",
+        (today,)
+    )
+    present_rows  = cur.fetchall()
+    present       = [{"username": r["username"], "time": r["time"]} for r in present_rows]
+    present_names = [p["username"] for p in present]
+    absent        = [u for u in all_users if u not in present_names]
+
     conn.close()
-
-    if not rows:
-        return jsonify({"success": False, "message": "No registered users found. Please register first."}), 404
-
-    # ── Compare against each stored encoding
-    known_encodings = []
-    known_usernames = []
-    for row in rows:
-        stored = np.array(json.loads(row["encoding"]))
-        known_encodings.append(stored)
-        known_usernames.append(row["username"])
-
-    # compare_faces returns a list of True/False per known encoding
-    matches = face_recognition.compare_faces(known_encodings, encoding, tolerance=TOLERANCE)
-
-    # Also compute distance for the best match (lower = more similar)
-    distances = face_recognition.face_distance(known_encodings, encoding)
-    best_idx  = int(np.argmin(distances))
-
-    if matches[best_idx]:
-        matched_user = known_usernames[best_idx]
-        confidence   = round((1 - float(distances[best_idx])) * 100, 1)
-        return jsonify({
-            "success": True,
-            "message": f"Welcome back, {matched_user}!",
-            "username": matched_user,
-            "confidence": confidence
-        })
-
     return jsonify({
-        "success": False,
-        "message": "Face not recognized. Please try again or register."
-    }), 401
+        "date":          today,
+        "present":       present,
+        "absent":        absent,
+        "total":         len(all_users),
+        "present_count": len(present),
+        "absent_count":  len(absent)
+    })
 
+# ── API: Full Attendance History ────────────────────────────────
 
-# ── /users (GET) — debug / admin only ──────────────────────────────────────────
+@app.route("/attendance/all", methods=["GET"])
+def get_all_attendance():
+    conn, cur = get_db()
+    cur.execute(
+        "SELECT username, date, time FROM attendance ORDER BY date DESC, time DESC"
+    )
+    rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+    return jsonify({"records": rows, "count": len(rows)})
+
+# ── API: List Users ─────────────────────────────────────────────
+
 @app.route("/users", methods=["GET"])
 def list_users():
-    """Return a list of registered usernames (no encodings)."""
     conn, cur = get_db()
-    cur.execute("SELECT id, username, created FROM users ORDER BY created DESC")
+    cur.execute("SELECT id, username, created FROM users ORDER BY username")
     rows = [dict(r) for r in cur.fetchall()]
     conn.close()
     return jsonify({"users": rows, "count": len(rows)})
 
+# ── Start ───────────────────────────────────────────────────────
 
-# ── Startup ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     init_db()
-    print("\n✅  Face Auth server running at http://127.0.0.1:5000\n")
+    print("\n✅  Attendance System running at http://127.0.0.1:5000\n")
     app.run(debug=True, host="0.0.0.0", port=5000)

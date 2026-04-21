@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Attendance — FaceAuth</title>
+  <link rel="stylesheet" href="/static/css/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    .attendance-page { padding: 32px 24px; position: relative; z-index: 1; max-width: 900px; margin: 0 auto; }
+    .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; flex-wrap: wrap; gap: 16px; }
+    .page-header h1 { font-family: var(--font-display); font-size: 2rem; font-weight: 800; }
+    .date-picker { background: var(--bg-card); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text); font-family: var(--font-mono); font-size: 0.85rem; outline: none; cursor: pointer; }
+    .date-picker:focus { border-color: var(--accent); }
+
+    /* Stats bar */
+    .stats-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 28px; }
+    .stat-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; text-align: center; }
+    .stat-card.total  { border-color: rgba(0,212,255,0.2); }
+    .stat-card.present{ border-color: rgba(0,255,136,0.2); }
+    .stat-card.absent { border-color: rgba(255,68,102,0.2); }
+    .stat-num  { font-family: var(--font-display); font-size: 2.5rem; font-weight: 800; line-height: 1; }
+    .stat-card.total   .stat-num { color: var(--accent-2); }
+    .stat-card.present .stat-num { color: var(--accent); }
+    .stat-card.absent  .stat-num { color: var(--accent-err); }
+    .stat-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 6px; }
+
+    /* Tables */
+    .tables-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media(max-width: 640px) { .tables-grid { grid-template-columns: 1fr; } .stats-bar { grid-template-columns: 1fr; } }
+
+    .table-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .table-card-header { padding: 16px 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+    .table-card-header h3 { font-family: var(--font-display); font-size: 1rem; font-weight: 700; }
+    .badge { padding: 3px 10px; border-radius: 999px; font-size: 0.72rem; font-weight: 700; }
+    .badge-present { background: rgba(0,255,136,0.12); color: var(--accent); border: 1px solid rgba(0,255,136,0.25); }
+    .badge-absent  { background: rgba(255,68,102,0.12); color: var(--accent-err); border: 1px solid rgba(255,68,102,0.25); }
+
+    .table-body { max-height: 380px; overflow-y: auto; }
+    .table-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; border-bottom: 1px solid var(--border); font-size: 0.85rem; transition: background 0.15s; }
+    .table-row:last-child { border-bottom: none; }
+    .table-row:hover { background: rgba(255,255,255,0.03); }
+    .row-name { display: flex; align-items: center; gap: 10px; }
+    .avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; flex-shrink: 0; }
+    .avatar-present { background: rgba(0,255,136,0.15); color: var(--accent); }
+    .avatar-absent  { background: rgba(255,68,102,0.15); color: var(--accent-err); }
+    .row-time { font-size: 0.75rem; color: var(--text-muted); font-family: var(--font-mono); }
+    .empty-state { padding: 40px 20px; text-align: center; color: var(--text-dim); font-size: 0.83rem; }
+
+    /* Progress bar */
+    .progress-wrap { margin-bottom: 28px; }
+    .progress-label { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--text-muted); margin-bottom: 8px; }
+    .progress-bar { height: 8px; background: var(--border); border-radius: 999px; overflow: hidden; }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 999px; transition: width 0.6s ease; }
+
+    .refresh-btn { background: none; border: 1.5px solid var(--border-hi); border-radius: var(--radius); color: var(--text-muted); padding: 8px 14px; font-family: var(--font-mono); font-size: 0.78rem; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 6px; }
+    .refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .refresh-btn svg { width: 14px; height: 14px; }
+  </style>
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="orb orb-1" aria-hidden="true"></div>
+  <div class="orb orb-2" aria-hidden="true"></div>
+
+  <div class="attendance-page">
+    <!-- Header -->
+    <div class="page-header">
+      <div>
+        <a href="/" class="back-link" style="margin-bottom:8px; display:inline-flex;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15,18 9,12 15,6"/></svg>
+          Back
+        </a>
+        <h1>📋 Attendance</h1>
+      </div>
+      <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+        <input type="date" class="date-picker" id="datePicker" />
+        <button class="refresh-btn" onclick="loadAttendance()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Refresh
+        </button>
+        <a href="/login-page" class="btn btn-primary" style="padding:8px 18px; font-size:0.82rem;">
+          + Mark Attendance
+        </a>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-bar">
+      <div class="stat-card total">
+        <div class="stat-num" id="statTotal">—</div>
+        <div class="stat-label">Total Students</div>
+      </div>
+      <div class="stat-card present">
+        <div class="stat-num" id="statPresent">—</div>
+        <div class="stat-label">Present Today</div>
+      </div>
+      <div class="stat-card absent">
+        <div class="stat-num" id="statAbsent">—</div>
+        <div class="stat-label">Absent Today</div>
+      </div>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap">
+      <div class="progress-label">
+        <span>Attendance Rate</span>
+        <span id="progressPct">0%</span>
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Tables -->
+    <div class="tables-grid">
+      <!-- Present -->
+      <div class="table-card">
+        <div class="table-card-header">
+          <h3>✅ Present</h3>
+          <span class="badge badge-present" id="presentBadge">0</span>
+        </div>
+        <div class="table-body" id="presentList">
+          <div class="empty-state">Loading…</div>
+        </div>
+      </div>
+
+      <!-- Absent -->
+      <div class="table-card">
+        <div class="table-card-header">
+          <h3>❌ Absent</h3>
+          <span class="badge badge-absent" id="absentBadge">0</span>
+        </div>
+        <div class="table-body" id="absentList">
+          <div class="empty-state">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Set date picker to today by default
+    const picker = document.getElementById("datePicker");
+    picker.value = new Date().toISOString().split("T")[0];
+    picker.addEventListener("change", loadAttendance);
+
+    async function loadAttendance() {
+      const date = picker.value;
+      const res  = await fetch(`/attendance?date=${date}`);
+      const data = await res.json();
+
+      // Stats
+      document.getElementById("statTotal").textContent   = data.total;
+      document.getElementById("statPresent").textContent = data.present_count;
+      document.getElementById("statAbsent").textContent  = data.absent_count;
+
+      // Progress
+      const pct = data.total > 0 ? Math.round((data.present_count / data.total) * 100) : 0;
+      document.getElementById("progressPct").textContent  = pct + "%";
+      document.getElementById("progressFill").style.width = pct + "%";
+
+      // Badges
+      document.getElementById("presentBadge").textContent = data.present_count;
+      document.getElementById("absentBadge").textContent  = data.absent_count;
+
+      // Present list
+      const presentEl = document.getElementById("presentList");
+      if (data.present.length === 0) {
+        presentEl.innerHTML = `<div class="empty-state">No one marked present yet</div>`;
+      } else {
+        presentEl.innerHTML = data.present.map(p => `
+          <div class="table-row">
+            <div class="row-name">
+              <div class="avatar avatar-present">${p.username[0].toUpperCase()}</div>
+              <span>${p.username}</span>
+            </div>
+            <span class="row-time">${p.time}</span>
+          </div>
+        `).join("");
+      }
+
+      // Absent list
+      const absentEl = document.getElementById("absentList");
+      if (data.absent.length === 0) {
+        absentEl.innerHTML = `<div class="empty-state">Everyone is present! 🎉</div>`;
+      } else {
+        absentEl.innerHTML = data.absent.map(name => `
+          <div class="table-row">
+            <div class="row-name">
+              <div class="avatar avatar-absent">${name[0].toUpperCase()}</div>
+              <span>${name}</span>
+            </div>
+            <span class="row-time">—</span>
+          </div>
+        `).join("");
+      }
+    }
+
+    // Load on page open
+    loadAttendance();
+  </script>
+</body>
+</html>

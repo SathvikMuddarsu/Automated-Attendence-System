@@ -1,21 +1,10 @@
 /**
  * result.js — Display authentication result
- * ============================================
- * Reads JSON from sessionStorage (set by register.js or login.js)
- * and renders a success or failure card.
+ * Fixed: handles missing sessionStorage gracefully
  */
 
 document.addEventListener("DOMContentLoaded", () => {
   const raw = sessionStorage.getItem("authResult");
-
-  // If no result in storage (user navigated here directly), redirect home
-  if (!raw) {
-    window.location.href = "/";
-    return;
-  }
-
-  const data = JSON.parse(raw);
-  sessionStorage.removeItem("authResult"); // Consume — prevent stale display on refresh
 
   const card       = document.getElementById("resultCard");
   const icon       = document.getElementById("resultIcon");
@@ -27,44 +16,88 @@ document.addEventListener("DOMContentLoaded", () => {
   const metaTime   = document.getElementById("metaTime");
   const btnTryAgain= document.getElementById("btnTryAgain");
 
-  const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  // If no data found, show a default error instead of blank page
+  if (!raw) {
+    card.classList.add("error");
+    icon.classList.add("error");
+    icon.textContent    = "✕";
+    title.textContent   = "No Result Found";
+    message.textContent = "Please go back and try registering or logging in again.";
+    metaDiv.style.display = "none";
+    btnTryAgain.textContent = "Try Again";
+    btnTryAgain.href        = "/login-page";
+    animateCard(card);
+    return;
+  }
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch(e) {
+    card.classList.add("error");
+    icon.classList.add("error");
+    icon.textContent    = "✕";
+    title.textContent   = "Something went wrong";
+    message.textContent = "Could not read result data. Please try again.";
+    metaDiv.style.display = "none";
+    animateCard(card);
+    return;
+  }
+
+  sessionStorage.removeItem("authResult"); // consume it
+
+  const now = new Date().toLocaleTimeString([], {
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  });
 
   if (data.success) {
     card.classList.add("success");
     icon.classList.add("success");
     icon.textContent = "✓";
-    title.textContent   = data.action === "Login" ? "Access Granted" : "Registered!";
-    message.textContent = data.message;
 
-    // Meta block (only meaningful for login with confidence)
+    // Title based on action
+    if (data.action === "Registration") {
+      title.textContent = "Registered!";
+    } else if (data.already_marked) {
+      title.textContent = "Already Marked!";
+    } else {
+      title.textContent = "Attendance Marked!";
+    }
+
+    message.textContent = data.message || "Success!";
+
+    // Show meta info
     if (data.username) {
       metaUser.textContent = data.username;
-      metaConf.textContent = data.confidence ? data.confidence + "%" : (data.action === "Registration" ? "N/A" : "—");
-      metaTime.textContent = now;
+      metaConf.textContent = data.confidence ? data.confidence + "%" : "N/A";
+      metaTime.textContent = data.time || now;
       metaDiv.style.display = "flex";
     }
 
-    // Change "Try Again" to a more useful action on success
+    // Button actions
     if (data.action === "Registration") {
-      btnTryAgain.textContent = "Login Now →";
+      btnTryAgain.textContent = "Mark Attendance →";
       btnTryAgain.href        = "/login-page";
     } else {
-      btnTryAgain.textContent = "Login Again →";
-      btnTryAgain.href        = "/login-page";
+      btnTryAgain.textContent = "View Attendance →";
+      btnTryAgain.href        = "/attendance-page";
     }
 
   } else {
     card.classList.add("error");
     icon.classList.add("error");
     icon.textContent    = "✕";
-    title.textContent   = "Access Denied";
-    message.textContent = data.message || "Face not recognized.";
+    title.textContent   = "Not Recognized";
+    message.textContent = data.message || "Face not recognized. Please try again.";
     metaDiv.style.display = "none";
     btnTryAgain.textContent = "Try Again";
     btnTryAgain.href        = "/login-page";
   }
 
-  // Animate card in
+  animateCard(card);
+});
+
+function animateCard(card) {
   card.style.opacity   = "0";
   card.style.transform = "translateY(24px)";
   requestAnimationFrame(() => {
@@ -72,4 +105,4 @@ document.addEventListener("DOMContentLoaded", () => {
     card.style.opacity    = "1";
     card.style.transform  = "translateY(0)";
   });
-});
+}

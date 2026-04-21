@@ -31,12 +31,14 @@ async function loginUser() {
 
     if (result.success) {
       sessionStorage.setItem("authResult", JSON.stringify({
-        success:    true,
-        username:   result.username,
-        message:    result.message,
-        action:     "Login",
-        confidence: result.confidence
-      }));
+  success:       true,
+  username:      result.username,
+  message:       result.message,
+  action:        "Login",
+  confidence:    result.confidence,
+  already_marked: result.already_marked,
+  time:          result.time
+}));
       window.location.href = "/result-page";
     } else {
       setStatus(result.message || "Authentication failed.", "error");
